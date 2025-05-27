@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tracking Link Generator & Tracker</title>
+  <style>
+    /* Reset and base */
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #111827;
+      color: #f9fafb;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 2rem;
+    }
+    a {
+      color: #3b82f6;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    h1, h2 {
+      text-align: center;
+      font-weight: 700;
+    }
+    button {
+      background: #3b82f6;
+      border: none;
+      color: white;
+      font-weight: 600;
+      padding: 0.75rem 1.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      font-size: 1rem;
+    }
+    button:hover:not(:disabled) {
+      background: #2563eb;
+    }
+    button:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+    input[type="url"] {
+      width: 100%;
+      padding: 0.75rem;
+      border-radius: 6px;
+      border: none;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+    label {
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+    .container {
+      max-width: 480px;
+      width: 100%;
+      background: #1f2937;
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: 0 8px 16px rgba(59,130,246,0.25);
+    }
+    .tracking-item {
+      background: #374151;
+      margin-bottom: 1rem;
+      padding: 1rem;
+      border-radius: 8px;
+      word-break: break-word;
+    }
+    .tracking-item .link {
+      font-weight: 600;
+      color: #60a5fa;
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+    .tracking-item .location {
+      font-size: 0.9rem;
+      color: #9ca3af;
+    }
+    .footer {
+      margin-top: 2rem;
+      font-size: 0.8rem;
+      color: #6b7280;
+      text-align: center;
+    }
+    .loading {
+      color: #fbbf24;
+      font-weight: 600;
+      text-align: center;
+      margin: 1rem 0;
+    }
+    .error {
+      color: #f87171;
+      font-weight: 600;
+      text-align: center;
+      margin: 1rem 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="app">
+
+  </div>
+
+  <script>
+    (function() {
+      const appEl = document.getElementById('app');
+
+      // Utility function to encode URI components safely for the tracking URL
+      function encodeUrl(url) {
+        return encodeURIComponent(url);
+      }
+      function decodeUrl(url) {
+        return decodeURIComponent(url);
+      }
+
+      // LocalStorage wrapper for tracking links and their last known locations
+      const STORAGE_KEY = 'tracking_links_data';
+
+      function saveLinks(data) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      }
+
+      function loadLinks() {
+        let data = localStorage.getItem(STORAGE_KEY);
+        if (!data) return [];
+        try {
+          return JSON.parse(data);
+        } catch {
+          return [];
+        }
+      }
+
+      // Generate a short random ID
+      function makeId(length=6) {
+        const characters = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let result = '';
+        for (let i = 0; i < length; i++) {
+          result += characters.charAt(Math.floor(Math.random() * characters.length));
+        }
+        return result;
+      }
+
+      // Construct the tracking URL
+      function buildTrackingUrl(id, originalUrl) {
+        // Use current location origin + pathname + ?id=xxx&url=encodedURL
+        return `${location.origin}${location.pathname}?id=${id}&url=${encodeUrl(originalUrl)}`;
+      }
+
+      // The main app view: form and list of tracking links
+      function renderMainView() {
+        appEl.innerHTML = `
+          <h1>Tracking Link Generator</h1>
+          <form id="createForm" aria-label="Create tracking link form" autocomplete="off">
+            <label for="destinationUrl">Destination URL</label>
+            <input type="url" id="destinationUrl" name="destinationUrl" placeholder="https://example.com" required />
+            <button type="submit">Create Tracking Link</button>
+          </form>
+          <h2>Your Tracking Links</h2>
+          <div id="linksList"></div>
+          <div class="footer">© 2024 Tracking Link Generator</div>
+        `;
+        const form = document.getElementById('createForm');
+        const destinationInput = document.getElementById('destinationUrl');
+        const linksList = document.getElementById('linksList');
+
+        function renderLinks() {
+          const links = loadLinks();
+          if (links.length === 0) {
+            linksList.innerHTML = '<p>No tracking links created yet.</p>';
+            return;
+          }
+          linksList.innerHTML = '';
+          links.slice().reverse().forEach(link => {
+            const div = document.createElement('div');
+            div.className = 'tracking-item';
+            div.innerHTML = `
+              <a class="link" href="${link.trackingUrl}" target="_blank" rel="noopener noreferrer">${link.trackingUrl}</a>
+              <div><strong>Destination:</strong> <a href="${link.originalUrl}" target="_blank" rel="noopener noreferrer">${link.originalUrl}</a></div>
+              <div class="location"><strong>Last Known Location:</strong> ${link.lastLocation ? sanitizeText(link.lastLocation) : '<em>None yet</em>'}</div>
+              <button class="btn-delete" aria-label="Delete tracking link ${link.trackingUrl}">Delete</button>
+            `;
+            const btnDelete = div.querySelector('.btn-delete');
+            btnDelete.addEventListener('click', () => {
+              if (confirm('Delete this tracking link? This action cannot be undone.')) {
+                const allLinks = loadLinks();
+                const filtered = allLinks.filter(l => l.id !== link.id);
+                saveLinks(filtered);
+                renderLinks();
+              }
+            });
+            linksList.appendChild(div);
+          });
+        }
+
+        // Basic sanitation for location text
+        function sanitizeText(text) {
+          const div = document.createElement('div');
+          div.textContent = text;
+          return div.innerHTML;
+        }
+
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const url = destinationInput.value.trim();
+          if (!isValidHttpUrl(url)) {
+            alert('Please enter a valid URL starting with http:// or https://');
+            return;
+          }
+          let links = loadLinks();
+          // Generate unique id for the tracking link
+          let id;
+          do {
+            id = makeId(8);
+          } while (links.some(l => l.id === id));
+          const trackingUrl = buildTrackingUrl(id, url);
+          links.push({
+            id,
+            originalUrl: url,
+            trackingUrl,
+            lastLocation: null,
+          });
+          saveLinks(links);
+          destinationInput.value = '';
+          renderLinks();
+          alert('Tracking link created! You can share it now.');
+        });
+
+        renderLinks();
+      }
+
+      function isValidHttpUrl(string) {
+        let url;
+        try {
+          url = new URL(string);
+        } catch (_) {
+          return false;
+        }
+        return url.protocol === "http:" || url.protocol === "https:";
+      }
+
+      // The tracking redirect page view
+      function renderTrackingView(id, encodedUrl) {
+        const originalUrl = decodeUrl(encodedUrl);
+        appEl.innerHTML = `
+          <h1>Tracking Link Opened</h1>
+          <p>We are detecting your location...</p>
+          <div id="status" class="loading">Waiting for geolocation permission...</div>
+          <div><strong>Original destination:</strong> <a href="${originalUrl}" target="_blank" rel="noopener noreferrer">${originalUrl}</a></div>
+          <div id="locInfo"></div>
+          <p>You will be redirected shortly...</p>
+        `;
+
+        const statusEl = document.getElementById('status');
+        const locInfoEl = document.getElementById('locInfo');
+
+        function redirect() {
+          location.href = originalUrl;
+        }
+
+        // Save location info in localStorage for later display on main page
+        function saveLocationInfo(locString) {
+          let links = loadLinks();
+          const idx = links.findIndex(l => l.id === id);
+          if (idx !== -1) {
+            links[idx].lastLocation = locString;
+            saveLinks(links);
+          }
+        }
+
+        // Format location info string
+        function formatLocation(lat, lon, city = '', region = '', country = '') {
+          let parts = [];
+          if (city) parts.push(city);
+          if (region) parts.push(region);
+          if (country) parts.push(country);
+          let locStr = parts.join(', ');
+          if (!locStr) locStr = `Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(4)}`;
+          return locStr;
+        }
+
+        // First, try Geolocation API
+        if (!navigator.geolocation) {
+          statusEl.textContent = 'Geolocation is not supported by your browser.';
+          fallbackLookup();
+        } else {
+          // Timeout for geolocation request (10 secs)
+          let geoTimeout = setTimeout(() => {
+            statusEl.textContent = 'Geolocation timed out. Falling back to approximate location.';
+            fallbackLookup();
+          }, 10000);
+
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              clearTimeout(geoTimeout);
+              const lat = position.coords.latitude;
+              const lon = position.coords.longitude;
+              const locStr = formatLocation(lat, lon);
+              statusEl.textContent = 'Geolocation detected!';
+              locInfoEl.textContent = locStr;
+              saveLocationInfo(locStr);
+              setTimeout(redirect, 3000);
+            },
+            (error) => {
+              clearTimeout(geoTimeout);
+              statusEl.textContent = 'Geolocation permission denied or error. Falling back to approximate location.';
+              fallbackLookup();
+            }
+          );
+        }
+
+        // Fallback function using IP geolocation API (free, no key, limited requests)
+        function fallbackLookup() {
+          // Use free IP geolocation service ip-api.com/json (supports JSONP)
+          const script = document.createElement('script');
+          script.src = 'https://ip-api.com/json?callback=ipCallback';
+          document.body.appendChild(script);
+        }
+        window.ipCallback = function(data) {
+          if (data && data.status === "success") {
+            const locStr = formatLocation(0, 0, data.city, data.regionName, data.country);
+            statusEl.textContent = 'Approximate location detected via IP:';
+            locInfoEl.textContent = locStr;
+            saveLocationInfo(locStr);
+          } else {
+            statusEl.textContent = 'Could not determine location.';
+          }
+          setTimeout(redirect, 3000);
+        };
+      }
+
+      // Entry point logic: check URL params to decide view
+      function main() {
+        const params = new URLSearchParams(location.search);
+        const id = params.get('id');
+        const urlEncoded = params.get('url');
+
+        if (id && urlEncoded) {
+          // Tracking page
+          renderTrackingView(id, urlEncoded);
+        } else {
+          // Main app page
+          renderMainView();
+        }
+      }
+
+      main();
+
+    })();
+  </script>
+</body>
+</html>
+
